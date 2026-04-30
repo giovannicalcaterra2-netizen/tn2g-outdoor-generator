@@ -1,44 +1,29 @@
-# TN2G Outdoor PDF Generator
+# TN2G Outdoor PDF Generator V3 - Google Drive GPX
 
-Questo è uno strumento semplice per generare un pacchetto LaTeX standardizzato per le uscite TN2G Outdoor.
+Questa versione carica automaticamente il GPX su una cartella Google Drive e inserisce nel LaTeX un link cliccabile "Scarica traccia GPX".
 
-## Cosa fa
+## Secrets richiesti su Streamlit Cloud
 
-Andrea compila un form, carica:
-- immagine del percorso / mappa
-- profilo altimetrico opzionale
-- traccia GPX opzionale
+Nelle impostazioni dell'app Streamlit Cloud, sezione Secrets, incolla:
 
-Lo strumento genera:
-- file `.tex` già impaginato
-- cartella `uploads`
-- pacchetto ZIP pronto da caricare su Overleaf
-- PDF diretto solo se sul computer/server è installato LaTeX
+```toml
+drive_folder_id = "ID_DELLA_CARTELLA_DRIVE"
 
-## Installazione
-
-Apri il terminale nella cartella del progetto e lancia:
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
+[gcp_service_account]
+type = "service_account"
+project_id = "..."
+private_key_id = "..."
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "nome-service-account@progetto.iam.gserviceaccount.com"
+client_id = "..."
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "..."
+universe_domain = "googleapis.com"
 ```
 
-Poi apri il link che Streamlit mostra nel browser.
-
-## Uso consigliato
-
-Per la V1:
-1. Andrea compila i dati.
-2. Carica una mappa già pronta come PNG/JPG.
-3. Carica eventuale profilo altimetrico.
-4. Scarica lo ZIP.
-5. Tu apri lo ZIP su Overleaf e compili.
-
-## Per compilare automaticamente il PDF
-
-Serve installare una distribuzione LaTeX, ad esempio:
-- MiKTeX su Windows
-- TeX Live su Linux/Mac
-
-Dopo l'installazione, puoi spuntare "Prova a compilare automaticamente il PDF".
+Importante:
+- non caricare mai il file JSON delle credenziali su GitHub;
+- condividi la cartella Drive con l'email `client_email` del service account;
+- l'app rende ogni GPX accessibile a chi ha il link.
