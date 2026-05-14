@@ -1,0 +1,312 @@
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage[a4paper,margin=1.6cm]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage[most]{tcolorbox}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{float}
+\usepackage{setspace}
+
+\definecolor{tnblue}{HTML}{0B2A4A}
+\definecolor{tnblue2}{HTML}{173F6B}
+\definecolor{tnlight}{HTML}{F4F7FB}
+\definecolor{tnaccent}{HTML}{E3A93B}
+\definecolor{tngray}{HTML}{5B6573}
+\definecolor{tnline}{HTML}{D9E1EA}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=tnblue,
+    urlcolor=tnblue2,
+    pdftitle={TN2G Outdoor - {{ titolo }}},
+    pdfauthor={TN2G Trentogether}
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+\titleformat{\section}
+{\Large\bfseries\color{tnblue}}
+{}{0em}{}
+
+\titleformat{\subsection}
+{\large\bfseries\color{tnblue2}}
+{}{0em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{tngray}{TN2G Outdoor}}
+\fancyhead[R]{\textcolor{tngray}{Trentogether}}
+\fancyfoot[C]{\textcolor{tngray}{\thepage}}
+
+\newtcolorbox{infobox}{
+    colback=tnlight,
+    colframe=tnblue,
+    boxrule=0.8pt,
+    arc=3mm,
+    left=2mm,right=2mm,top=2mm,bottom=2mm
+}
+
+\newtcolorbox{highlightbox}{
+    colback=white,
+    colframe=tnaccent,
+    boxrule=1pt,
+    arc=3mm,
+    left=2mm,right=2mm,top=2mm,bottom=2mm
+}
+
+{% raw %}
+\newcommand{\tnbutton}[2]{%
+    \href{#1}{%
+        \tcbox[
+            colback=tnblue,
+            colframe=tnblue,
+            arc=2mm,
+            boxrule=0pt,
+            left=7pt,
+            right=7pt,
+            top=4pt,
+            bottom=4pt,
+            on line
+        ]{%
+            \textcolor{white}{\textbf{#2}}%
+        }%
+    }%
+}
+{% endraw %}
+
+\begin{document}
+
+\begin{center}
+{% if logo_path %}
+    \includegraphics[width=0.28\textwidth]{ {{- logo_path -}} }
+
+    \vspace{0.5em}
+{% endif %}
+
+    {\Huge\bfseries\textcolor{tnblue}{TN2G Outdoor}}\\[0.2em]
+    {\LARGE\bfseries\textcolor{tnblue2}{ {{ titolo }} }}\\[0.4em]
+    {\large\textcolor{tngray}{ {{ data_evento }} • {{ sottotitolo }} }}
+\end{center}
+
+\vspace{0.6em}
+
+\begin{highlightbox}
+\centering
+{\large\bfseries\textcolor{tnblue}{ {{ highlight_title }} }}\\[0.4em]
+{{ highlight }}
+\end{highlightbox}
+
+\vspace{0.8em}
+
+\section*{Info evento}
+
+\begin{infobox}
+\begin{tabular}{>{\bfseries}p{0.27\textwidth} p{0.67\textwidth}}
+Data & {{ data_evento }} \\[0.3em]
+Orario di ritrovo & \textbf{ {{ ora_ritrovo }} } \\[0.3em]
+Punto di ritrovo & \textbf{ {{ ritrovo }} } \\[0.3em]
+Rientro previsto & {{ ora_rientro }} \\[0.3em]
+Come arrivare / partenza & {{ come_arrivare }} \\[0.3em]
+Tipologia & {{ categoria }} \\[0.3em]
+Percorso & {{ titolo }} \\[0.3em]
+Lunghezza indicativa & \textbf{ {{ km }} } \\[0.3em]
+Dislivello indicativo & \textbf{ {{ dislivello }} } \\[0.3em]
+Durata prevista & {{ durata }} \\[0.3em]
+Difficoltà & {{ difficolta }} \\
+\end{tabular}
+\end{infobox}
+
+\section*{Il percorso}
+
+{{ descrizione }}
+
+{% if programma %}
+\section*{Programma della giornata}
+
+\begin{infobox}
+\begin{itemize}[leftmargin=1.4em]
+{% for item in programma %}
+    \item {{ item }}
+{% endfor %}
+\end{itemize}
+\end{infobox}
+{% endif %}
+
+{% if mappa_path %}
+\section*{Mappa del giro}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.82\textwidth]{ {{- mappa_path -}} }
+\end{figure}
+{% endif %}
+
+{% if profilo_path %}
+\section*{Profilo altimetrico}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.82\textwidth]{ {{- profilo_path -}} }
+\end{figure}
+{% endif %}
+
+{% if note_mappa %}
+\begin{infobox}
+\textbf{Come leggere l’immagine:}
+\begin{itemize}[leftmargin=1.4em]
+{% for item in note_mappa %}
+    \item {{ item }}
+{% endfor %}
+\end{itemize}
+\end{infobox}
+{% endif %}
+
+{% if links or gpx_download_link or gpx_path %}
+\section*{Link utili}
+
+\begin{infobox}
+\begin{itemize}[leftmargin=1.5em]
+{% for link in links %}
+{% if link.url %}
+    \item \textbf{ {{- link.label if link.label else "Link utile" -}}:}\\
+    \href{ {{- link.url -}} }{ {{- link.label if link.label else link.url -}} }
+{% else %}
+    \item {{ link.label }}
+{% endif %}
+{% endfor %}
+
+{% if gpx_download_link %}
+    \item \textbf{Traccia GPX scaricabile:}\\[0.2em]
+    \tnbutton{ {{- gpx_download_link -}} }{Scarica traccia GPX}
+{% elif gpx_path %}
+    \item \textbf{Traccia GPX:} inclusa nello ZIP del pacchetto in \texttt{ {{- gpx_path -}} }
+{% endif %}
+\end{itemize}
+\end{infobox}
+{% endif %}
+
+{% if meteo %}
+\section*{Nota meteo}
+
+\begin{highlightbox}
+{{ meteo }}
+\end{highlightbox}
+{% endif %}
+
+\section*{Cosa portare e sicurezza}
+
+\begin{infobox}
+\textbf{Cosa portare}
+\begin{itemize}[leftmargin=1.4em]
+{% for item in cosa_portare %}
+    \item {{ item }}
+{% endfor %}
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Sicurezza}\\
+{{ sicurezza }}
+\end{infobox}
+
+{% if geocaches %}
+\section*{Geocaching lungo il percorso}
+
+\begin{infobox}
+{{ geocaching_intro }}
+
+\begin{itemize}[leftmargin=1.4em]
+{% for cache in geocaches %}
+{% if cache.url %}
+    \item \textbf{ {{ cache.label }} }\\
+    \href{ {{- cache.url -}} }{Apri su geocaching.com}
+{% else %}
+    \item \textbf{ {{ cache.label }} }
+{% endif %}
+{% endfor %}
+\end{itemize}
+\end{infobox}
+
+\begin{highlightbox}
+\textbf{Mini-missione TN2G — Explorer Mode}
+
+{{ explorer_mission }}
+\end{highlightbox}
+
+\begin{tcolorbox}[
+colback=tnlight,
+colframe=tnblue2,
+arc=3mm,
+boxrule=0.8pt
+]
+
+\textbf{Vuoi partecipare alla ricerca dei geocache?}
+
+Se non hai mai provato il geocaching puoi scoprire di cosa si tratta qui:
+
+\begin{center}
+\href{https://www.geocaching.com/play}{\textbf{Cos'è il Geocaching}}
+\end{center}
+
+\vspace{0.4em}
+
+Per partecipare alla caccia ai geocache durante l'escursione puoi scaricare l'app ufficiale:
+
+\vspace{0.5em}
+
+\begin{center}
+
+\href{https://apps.apple.com/app/geocaching/id329541503}{
+\fcolorbox{tnblue}{tnlight}{
+\begin{minipage}{0.32\textwidth}
+\centering
+\textbf{Scarica su}\\
+\textbf{App Store}
+\end{minipage}
+}}
+
+\hspace{0.8cm}
+
+\href{https://play.google.com/store/apps/details?id=com.groundspeak.geocaching.intro}{
+\fcolorbox{tnblue}{tnlight}{
+\begin{minipage}{0.32\textwidth}
+\centering
+\textbf{Scarica su}\\
+\textbf{Google Play}
+\end{minipage}
+}}
+
+\end{center}
+
+\end{tcolorbox}
+{% endif %}
+
+{% if mood_attivita %}
+\section*{Mood dell’attività}
+
+\begin{infobox}
+{{ mood_attivita }}
+
+\vspace{0.4em}
+\textbf{TN2G style:} scarpe comode, buon equipaggiamento in base al meteo, voglia di stare insieme e zero stress.
+\end{infobox}
+{% endif %}
+
+\vfill
+
+\begin{center}
+    {\Large\bfseries\textcolor{tnblue}{TN2G • Trentogether}}\\[0.3em]
+    {\small\textcolor{tngray}{Outdoor, community e nuove connessioni in Trentino}}
+\end{center}
+
+\end{document}
