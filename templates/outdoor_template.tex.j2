@@ -57,18 +57,22 @@
 }
 
 {% raw %}
-\newcommand{\tnbutton}[2]{
-    \tcbox[
-        colback=tnblue,
-        colframe=tnblue,
-        arc=2mm,
-        boxrule=0pt,
-        left=6pt,
-        right=6pt,
-        top=4pt,
-        bottom=4pt,
-        on line
-    ]{\textcolor{white}{\textbf{\href{#1}{#2}}}}
+\newcommand{\tnbutton}[2]{%
+    \href{#1}{%
+        \tcbox[
+            colback=tnblue,
+            colframe=tnblue,
+            arc=2mm,
+            boxrule=0pt,
+            left=7pt,
+            right=7pt,
+            top=4pt,
+            bottom=4pt,
+            on line
+        ]{%
+            \textcolor{white}{\textbf{#2}}%
+        }%
+    }%
 }
 {% endraw %}
 
