@@ -358,7 +358,7 @@ if submitted:
 
     mappa_path = save_upload(mappa, "mappa_percorso")
     profilo_path = save_upload(profilo, "profilo_altimetrico")
-    gpx_path = save_upload(gpx, "traccia.gpx")
+    gpx_path = save_upload(gpx, "traccia")
 
     for file in UPLOAD_DIR.glob("*"):
         shutil.copy(file, event_dir / "uploads" / file.name)
