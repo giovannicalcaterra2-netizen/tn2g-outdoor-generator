@@ -1,5 +1,8 @@
 from typing import Iterable
 
+# Carica la compatibilità per i log TeX Live prima che app.py usi subprocess.
+import sitecustomize  # noqa: F401
+
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").replace("\n", " ").split())
