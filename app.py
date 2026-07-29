@@ -7,13 +7,11 @@ from pathlib import Path
 import streamlit as st
 from jinja2 import Template
 
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 from caption_generator import generate_fallback_caption
-from graphic_generator import generate_square_graphic
+from google_services import build_drive_service
+from slides_graphic_generator import generate_slides_graphic
 
 
 APP_DIR = Path(__file__).parent
@@ -132,29 +130,7 @@ def parse_geocaches(raw: str):
 
 
 def get_drive_service():
-    if "oauth_token" not in st.secrets:
-        raise RuntimeError("Secrets mancanti: sezione [oauth_token].")
-
-    token = dict(st.secrets["oauth_token"])
-    required = ["token", "refresh_token", "token_uri", "client_id", "client_secret", "scopes"]
-    missing = [key for key in required if not token.get(key)]
-
-    if missing:
-        raise RuntimeError(f"Secrets OAuth incompleti. Mancano: {', '.join(missing)}")
-
-    creds = Credentials(
-        token=token["token"],
-        refresh_token=token["refresh_token"],
-        token_uri=token["token_uri"],
-        client_id=token["client_id"],
-        client_secret=token["client_secret"],
-        scopes=list(token["scopes"]),
-    )
-
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-
-    return build("drive", "v3", credentials=creds)
+    return build_drive_service(st.secrets)
 
 
 def upload_gpx_to_drive_oauth(local_file: Path, desired_name: str) -> str:
@@ -240,7 +216,7 @@ st.set_page_config(
 )
 
 st.title("🏔️ TN2G Outdoor Generator 2.0")
-st.caption("PDF, grafica quadrata e caption da un unico form.")
+st.caption("PDF, grafica quadrata Google Slides e caption da un unico form.")
 st.info("Versione DEV collegata alla branch `v2-dev`. La V1 usata da Andrea non viene modificata.")
 
 with st.form("event_form"):
@@ -371,7 +347,10 @@ with st.form("event_form"):
         value=True,
     )
     generate_pdf = st.checkbox("Genera direttamente il PDF nella webapp", value=True)
-    generate_graphic = st.checkbox("Genera la grafica quadrata 1080 × 1080", value=True)
+    generate_graphic = st.checkbox(
+        "Genera la grafica quadrata 1080 × 1080 con Google Slides",
+        value=True,
+    )
     generate_caption = st.checkbox("Genera la caption TN2G", value=True)
 
     submitted = st.form_submit_button("Genera kit TN2G 2.0")
@@ -478,11 +457,13 @@ if submitted:
 
     graphic_path = None
     graphic_error = ""
+    slides_presentation_url = ""
     if generate_graphic:
         try:
             graphic_path = event_dir / f"{event_slug}_grafica_quadrata.png"
-            generate_square_graphic(
+            slides_result = generate_slides_graphic(
                 graphic_path,
+                secrets=st.secrets,
                 title=titolo,
                 subtitle=f"TN2G Outdoor · {tipo_percorso}",
                 date_text=data_evento,
@@ -499,11 +480,15 @@ if submitted:
                 cover_path=(event_dir / cover_path) if cover_path else None,
                 map_path=(event_dir / mappa_path) if mappa_path else None,
                 profile_path=(event_dir / profilo_path) if profilo_path else None,
-                logo_path=(event_dir / logo_path) if logo_path else None,
+            )
+            slides_presentation_url = slides_result["presentation_url"]
+            st.success(
+                "Grafica generata con Google Slides. "
+                "Resta anche una copia modificabile nel tuo Drive."
             )
         except Exception as error:
             graphic_error = str(error)
-            st.warning(f"PDF elaborato, ma grafica non generata: {error}")
+            st.warning(f"PDF elaborato, ma grafica Slides non generata: {error}")
 
     caption_text = ""
     caption_path = None
@@ -536,6 +521,7 @@ if submitted:
         "compile_log": compile_log,
         "graphic_path": str(graphic_path) if graphic_path and graphic_path.exists() else "",
         "graphic_error": graphic_error,
+        "slides_presentation_url": slides_presentation_url,
         "caption_text": caption_text,
         "caption_path": str(caption_path) if caption_path else "",
         "kit_zip_path": str(kit_zip_path),
@@ -577,13 +563,21 @@ if results:
     with graphic_tab:
         graphic_path = Path(results["graphic_path"]) if results["graphic_path"] else None
         if graphic_path and graphic_path.exists():
-            st.image(str(graphic_path), caption="Anteprima grafica quadrata 1080 × 1080")
+            st.image(
+                str(graphic_path),
+                caption="Anteprima grafica quadrata Google Slides 1080 × 1080",
+            )
             st.download_button(
                 "Scarica grafica quadrata",
                 data=graphic_path.read_bytes(),
                 file_name=graphic_path.name,
                 mime="image/png",
             )
+            if results.get("slides_presentation_url"):
+                st.link_button(
+                    "Apri e modifica in Google Slides",
+                    results["slides_presentation_url"],
+                )
         else:
             st.error("La grafica non è stata generata.")
             if results["graphic_error"]:

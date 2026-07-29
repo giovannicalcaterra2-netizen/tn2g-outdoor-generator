@@ -3,3 +3,4 @@ texlive-latex-extra
 texlive-lang-italian
 texlive-fonts-recommended
 latexmk
+poppler-utils
