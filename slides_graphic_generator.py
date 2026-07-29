@@ -260,7 +260,9 @@ def _replace_image_request(
         "replaceAllShapesWithImage": {
             "containsText": {"text": marker, "matchCase": True},
             "imageUrl": url,
-            "replaceMethod": "CENTER_CROP" if crop else "CENTER_INSIDE",
+            "imageReplaceMethod": (
+                "CENTER_CROP" if crop else "CENTER_INSIDE"
+            ),
         }
     }
 
