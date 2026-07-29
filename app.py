@@ -12,6 +12,9 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+from caption_generator import generate_fallback_caption
+from graphic_generator import generate_square_graphic
+
 
 APP_DIR = Path(__file__).parent
 OUTPUT_DIR = APP_DIR / "output"
@@ -101,6 +104,10 @@ def parse_list(raw: str):
     return [latex_escape(line.strip()) for line in raw.splitlines() if line.strip()]
 
 
+def raw_list(raw: str):
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
 def parse_geocaches(raw: str):
     geocaches = []
     for line in raw.splitlines():
@@ -130,7 +137,7 @@ def get_drive_service():
 
     token = dict(st.secrets["oauth_token"])
     required = ["token", "refresh_token", "token_uri", "client_id", "client_secret", "scopes"]
-    missing = [k for k in required if k not in token]
+    missing = [key for key in required if not token.get(key)]
 
     if missing:
         raise RuntimeError(f"Secrets OAuth incompleti. Mancano: {', '.join(missing)}")
@@ -184,19 +191,14 @@ def upload_gpx_to_drive_oauth(local_file: Path, desired_name: str) -> str:
 def zip_output(folder: Path, zip_path: Path):
     if zip_path.exists():
         zip_path.unlink()
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         for file in folder.rglob("*"):
             if file.is_file():
-                z.write(file, file.relative_to(folder))
+                archive.write(file, file.relative_to(folder))
     return zip_path
 
 
 def compile_pdf_on_server(tex_path: Path):
-    """
-    Compile the generated LaTeX file into a PDF on Streamlit Cloud.
-    Requires packages.txt in the GitHub repository.
-    Returns: (pdf_path_or_none, log_text)
-    """
     cwd = tex_path.parent
     commands = [
         ["latexmk", "-pdf", "-interaction=nonstopmode", "-halt-on-error", tex_path.name],
@@ -221,20 +223,25 @@ def compile_pdf_on_server(tex_path: Path):
             pdf_path = tex_path.with_suffix(".pdf")
             if result.returncode == 0 and pdf_path.exists():
                 return pdf_path, "\n\n---\n\n".join(logs)
-        except FileNotFoundError as e:
-            logs.append(f"Comando non trovato: {cmd[0]}\n{e}")
-        except subprocess.TimeoutExpired as e:
-            logs.append(f"Timeout durante la compilazione con {cmd[0]}.\n{e}")
-        except Exception as e:
-            logs.append(f"Errore durante la compilazione con {cmd[0]}:\n{e}")
+        except FileNotFoundError as error:
+            logs.append(f"Comando non trovato: {cmd[0]}\n{error}")
+        except subprocess.TimeoutExpired as error:
+            logs.append(f"Timeout durante la compilazione con {cmd[0]}.\n{error}")
+        except Exception as error:
+            logs.append(f"Errore durante la compilazione con {cmd[0]}:\n{error}")
 
     return None, "\n\n---\n\n".join(logs)
 
 
-st.set_page_config(page_title="TN2G Outdoor PDF Generator", page_icon="🏔️", layout="centered")
+st.set_page_config(
+    page_title="TN2G Outdoor Generator 2.0",
+    page_icon="🏔️",
+    layout="centered",
+)
 
-st.title("🏔️ TN2G Outdoor PDF Generator")
-st.caption("Genera PDF TN2G Outdoor direttamente dalla webapp, con GPX caricato su Google Drive.")
+st.title("🏔️ TN2G Outdoor Generator 2.0")
+st.caption("PDF, grafica quadrata e caption da un unico form.")
+st.info("Versione DEV collegata alla branch `v2-dev`. La V1 usata da Andrea non viene modificata.")
 
 with st.form("event_form"):
     st.subheader("Info principali")
@@ -251,12 +258,27 @@ with st.form("event_form"):
         difficolta = st.selectbox("Difficoltà", ["Facile", "Media", "Impegnativa"])
         categoria = st.text_input("Tipologia", "Outdoor chill + social walk + viewpoint")
 
+    st.subheader("Dati per la grafica 2.0")
+    g1, g2, g3 = st.columns(3)
+    with g1:
+        tipo_percorso = st.selectbox(
+            "Tipo di percorso",
+            ["Anello", "Andata e ritorno", "Traversata", "Altro"],
+        )
+    with g2:
+        pranzo = st.text_input("Pranzo", "Al sacco")
+    with g3:
+        meteo_breve = st.text_input(
+            "Meteo / consiglio breve",
+            "Controllare il meteo prima di partire",
+        )
+
     st.subheader("Intro e mood")
     sottotitolo = st.text_input("Sottotitolo header", "Attività community Trentogether")
     highlight_title = st.text_input("Titolo box highlight iniziale", "Nuova attività outdoor TN2G")
     highlight = st.text_area(
         "Testo box highlight iniziale",
-        "Una camminata outdoor chill sopra Trento, tra bosco, social talk, viewpoint e mood TN2G."
+        "Una camminata outdoor chill sopra Trento, tra bosco, social talk, viewpoint e mood TN2G.",
     )
 
     st.subheader("Dati percorso")
@@ -270,75 +292,89 @@ with st.form("event_form"):
 
     come_arrivare = st.text_area(
         "Come arrivare / partenza effettiva",
-        "Inizieremo direttamente dal punto di ritrovo imboccando il percorso ad anello.\nCon i mezzi: indicare qui eventuali bus, fermate o tratto a piedi."
+        "Inizieremo direttamente dal punto di ritrovo imboccando il percorso ad anello.\nCon i mezzi: indicare qui eventuali bus, fermate o tratto a piedi.",
     )
 
     descrizione = st.text_area(
         "Il percorso",
-        "Si tratta di una breve escursione quasi urbana, con vista sulla città di Trento e su un contesto tranquillo e rilassante.\n\nÈ una proposta perfetta per un’uscita TN2G: scenica, sociale, accessibile e senza stress."
+        "Si tratta di una breve escursione quasi urbana, con vista sulla città di Trento e su un contesto tranquillo e rilassante.\n\nÈ una proposta perfetta per un’uscita TN2G: scenica, sociale, accessibile e senza stress.",
     )
 
     st.subheader("Programma e cose utili")
     programma = st.text_area(
         "Programma della giornata",
-        "15:00 Ritrovo\n15:15 Partenza\n16:30 Pausa panoramica\n18:30 Rientro previsto"
+        "15:00 Ritrovo\n15:15 Partenza\n16:30 Pausa panoramica\n18:30 Rientro previsto",
     )
 
     cosa_portare = st.text_area(
         "Cosa portare",
-        "Scarpe comode\nAcqua\nSnack\nGiacca antivento\nTessera trasporti, se necessaria"
+        "Scarpe comode\nAcqua\nSnack\nGiacca antivento\nTessera trasporti, se necessaria",
     )
 
     sicurezza = st.text_area(
         "Note sicurezza",
-        "Percorso non tecnico. Prestare attenzione nei tratti sterrati e in caso di fondo umido."
+        "Percorso non tecnico. Prestare attenzione nei tratti sterrati e in caso di fondo umido.",
     )
 
     meteo = st.text_area(
         "Nota meteo",
-        "Prima di partire controlliamo sempre il radar meteo.\nImportante: per leggere correttamente il radar, ricordate che l’orario può essere in UTC."
+        "Prima di partire controlliamo sempre il radar meteo.\nImportante: per leggere correttamente il radar, ricordate che l’orario può essere in UTC.",
     )
 
     st.subheader("Mappa e note")
     note_mappa = st.text_area(
         "Come leggere l'immagine, una voce per riga",
-        "La linea colorata mostra il percorso previsto.\nIl grafico rappresenta il profilo altimetrico del giro.\nEventuali stelline o marker indicano punti di interesse lungo il percorso."
+        "La linea colorata mostra il percorso previsto.\nIl grafico rappresenta il profilo altimetrico del giro.\nEventuali stelline o marker indicano punti di interesse lungo il percorso.",
     )
 
     st.subheader("Link utili")
     st.caption("Formato consigliato: Etichetta | https://link")
-    link_utili = st.text_area("Link utili, uno per riga", "MeteoTrentino | https://www.meteotrentino.it/")
+    link_utili = st.text_area(
+        "Link utili, uno per riga",
+        "MeteoTrentino | https://www.meteotrentino.it/",
+    )
 
     st.subheader("Geocaching / Explorer mode")
     geocaching_intro = st.text_area(
         "Testo introduttivo geocaching, opzionale",
-        "Durante la passeggiata potremo anche cercare alcuni geocache nascosti lungo la zona. Per chi non lo conoscesse, il geocaching è una sorta di caccia al tesoro GPS."
+        "Durante la passeggiata potremo anche cercare alcuni geocache nascosti lungo la zona. Per chi non lo conoscesse, il geocaching è una sorta di caccia al tesoro GPS.",
     )
     geocaches = st.text_area("Codici geocache, uno per riga, opzionale", "")
     explorer_mission = st.text_area(
         "Mini-missione TN2G, opzionale",
-        "Se riusciamo a trovarli durante il giro, potremo considerarli come una piccola missione explorer della community. Perfetto mix tra outdoor, esplorazione e nerd mode."
+        "Se riusciamo a trovarli durante il giro, potremo considerarli come una piccola missione explorer della community. Perfetto mix tra outdoor, esplorazione e nerd mode.",
     )
 
     st.subheader("Mood finale")
     mood_attivita = st.text_area(
         "Mood dell'attività",
-        "Questa uscita è pensata come un outdoor social leggero, adatto a chi ha voglia di camminare in compagnia, vedere un angolo bello sopra Trento e fare due chiacchiere senza stress."
+        "Questa uscita è pensata come un outdoor social leggero, adatto a chi ha voglia di camminare in compagnia, vedere un angolo bello sopra Trento e fare due chiacchiere senza stress.",
     )
 
     st.subheader("File da caricare")
-    mappa = st.file_uploader("Immagine percorso / mappa", type=["png", "jpg", "jpeg", "pdf"])
-    profilo = st.file_uploader("Profilo altimetrico, opzionale", type=["png", "jpg", "jpeg", "pdf"])
+    foto_copertina = st.file_uploader(
+        "Foto principale per la grafica quadrata",
+        type=["png", "jpg", "jpeg", "webp"],
+    )
+    mappa = st.file_uploader(
+        "Immagine percorso / mappa",
+        type=["png", "jpg", "jpeg", "pdf"],
+    )
+    profilo = st.file_uploader(
+        "Profilo altimetrico, opzionale",
+        type=["png", "jpg", "jpeg", "pdf"],
+    )
     gpx = st.file_uploader("Traccia GPX", type=["gpx"])
 
     upload_drive = st.checkbox(
         "Carica automaticamente il GPX sul mio Google Drive e inserisci link cliccabile",
         value=True,
     )
-
     generate_pdf = st.checkbox("Genera direttamente il PDF nella webapp", value=True)
+    generate_graphic = st.checkbox("Genera la grafica quadrata 1080 × 1080", value=True)
+    generate_caption = st.checkbox("Genera la caption TN2G", value=True)
 
-    submitted = st.form_submit_button("Genera PDF e pacchetto")
+    submitted = st.form_submit_button("Genera kit TN2G 2.0")
 
 if submitted:
     event_slug = safe_filename(titolo)
@@ -353,9 +389,9 @@ if submitted:
 
     if UPLOAD_DIR.exists():
         shutil.rmtree(UPLOAD_DIR)
-
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+    cover_path = save_upload(foto_copertina, "foto_copertina")
     mappa_path = save_upload(mappa, "mappa_percorso")
     profilo_path = save_upload(profilo, "profilo_altimetrico")
     gpx_path = save_upload(gpx, "traccia")
@@ -369,6 +405,7 @@ if submitted:
         logo_path = "assets/logo_outdoor.png"
 
     gpx_download_link = ""
+    drive_warning = ""
 
     if gpx_path and upload_drive:
         try:
@@ -376,8 +413,9 @@ if submitted:
             drive_name = f"{event_slug}.gpx"
             gpx_download_link = upload_gpx_to_drive_oauth(local_gpx, drive_name)
             st.success("GPX caricato sul tuo Google Drive e link generato.")
-        except Exception as e:
-            st.warning(f"Pacchetto creato, ma upload GPX su Drive non riuscito: {e}")
+        except Exception as error:
+            drive_warning = str(error)
+            st.warning(f"Pacchetto creato, ma upload GPX su Drive non riuscito: {error}")
 
     template = Template(TEMPLATE_PATH.read_text(encoding="utf-8"))
 
@@ -427,8 +465,8 @@ if submitted:
     )
 
     (event_dir / "README.txt").write_text(
-        "Pacchetto LaTeX generato automaticamente.\n"
-        "Il GPX resta nella cartella uploads. Se l'upload OAuth funziona, il PDF include anche il link Drive cliccabile.\n",
+        "Kit TN2G Outdoor 2.0 generato automaticamente.\n"
+        "Contiene il materiale prodotto dalla webapp e gli allegati caricati.\n",
         encoding="utf-8",
     )
 
@@ -438,31 +476,144 @@ if submitted:
         with st.spinner("Compilo il PDF su Streamlit Cloud..."):
             pdf_path, compile_log = compile_pdf_on_server(tex_path)
 
-    zip_path = OUTPUT_DIR / f"{event_slug}_pacchetto_latex.zip"
-    zip_output(event_dir, zip_path)
+    graphic_path = None
+    graphic_error = ""
+    if generate_graphic:
+        try:
+            graphic_path = event_dir / f"{event_slug}_grafica_quadrata.png"
+            generate_square_graphic(
+                graphic_path,
+                title=titolo,
+                subtitle=f"TN2G Outdoor · {tipo_percorso}",
+                date_text=data_evento,
+                meeting_time=ora_ritrovo,
+                meeting_place=ritrovo,
+                distance=km,
+                elevation=dislivello,
+                duration=durata,
+                difficulty=difficolta,
+                route_type=tipo_percorso,
+                lunch=pranzo,
+                weather=meteo_breve,
+                bring_items=raw_list(cosa_portare),
+                cover_path=(event_dir / cover_path) if cover_path else None,
+                map_path=(event_dir / mappa_path) if mappa_path else None,
+                profile_path=(event_dir / profilo_path) if profilo_path else None,
+                logo_path=(event_dir / logo_path) if logo_path else None,
+            )
+        except Exception as error:
+            graphic_error = str(error)
+            st.warning(f"PDF elaborato, ma grafica non generata: {error}")
 
-    st.success("Generazione completata!")
+    caption_text = ""
+    caption_path = None
+    if generate_caption:
+        caption_text = generate_fallback_caption(
+            title=titolo,
+            date_text=data_evento,
+            meeting_time=ora_ritrovo,
+            meeting_place=ritrovo,
+            distance=km,
+            elevation=dislivello,
+            duration=durata,
+            difficulty=difficolta,
+            lunch=pranzo,
+            intro=highlight,
+            route_description=descrizione,
+            bring_items=raw_list(cosa_portare),
+            return_time=ora_rientro,
+            mood=mood_attivita,
+        )
+        caption_path = event_dir / f"{event_slug}_caption.txt"
+        caption_path.write_text(caption_text, encoding="utf-8")
 
-    if gpx_download_link:
-        st.info(f"Link GPX generato: {gpx_download_link}")
+    kit_zip_path = OUTPUT_DIR / f"{event_slug}_kit_tn2g_v2.zip"
+    zip_output(event_dir, kit_zip_path)
 
-    if pdf_path and pdf_path.exists():
-        with open(pdf_path, "rb") as f:
+    st.session_state["v2_results"] = {
+        "event_slug": event_slug,
+        "pdf_path": str(pdf_path) if pdf_path else "",
+        "compile_log": compile_log,
+        "graphic_path": str(graphic_path) if graphic_path and graphic_path.exists() else "",
+        "graphic_error": graphic_error,
+        "caption_text": caption_text,
+        "caption_path": str(caption_path) if caption_path else "",
+        "kit_zip_path": str(kit_zip_path),
+        "tex_path": str(tex_path),
+        "gpx_download_link": gpx_download_link,
+        "drive_warning": drive_warning,
+    }
+
+    st.success("Kit TN2G 2.0 generato.")
+
+results = st.session_state.get("v2_results")
+if results:
+    st.divider()
+    pdf_tab, graphic_tab, caption_tab, kit_tab = st.tabs(
+        ["📄 PDF", "🎨 Grafica", "✍️ Caption", "📦 Kit completo"]
+    )
+
+    with pdf_tab:
+        pdf_path = Path(results["pdf_path"]) if results["pdf_path"] else None
+        if pdf_path and pdf_path.exists():
             st.download_button(
                 "Scarica PDF finale",
-                data=f,
+                data=pdf_path.read_bytes(),
                 file_name=pdf_path.name,
                 mime="application/pdf",
             )
-    elif generate_pdf:
-        st.error("La compilazione PDF non è riuscita. Puoi comunque scaricare lo ZIP LaTeX.")
-        with st.expander("Mostra log compilazione LaTeX"):
-            st.code(compile_log or "Nessun log disponibile.")
+        else:
+            st.error("Il PDF non è stato generato.")
+            if results["compile_log"]:
+                with st.expander("Mostra log compilazione LaTeX"):
+                    st.code(results["compile_log"])
 
-    with open(zip_path, "rb") as f:
-        st.download_button(
-            "Scarica pacchetto LaTeX ZIP",
-            data=f,
-            file_name=zip_path.name,
-            mime="application/zip",
+        if results["gpx_download_link"]:
+            st.success("Nel PDF è presente il link GPX scaricabile.")
+            st.code(results["gpx_download_link"])
+        elif results["drive_warning"]:
+            st.warning(f"Link GPX non inserito: {results['drive_warning']}")
+
+    with graphic_tab:
+        graphic_path = Path(results["graphic_path"]) if results["graphic_path"] else None
+        if graphic_path and graphic_path.exists():
+            st.image(str(graphic_path), caption="Anteprima grafica quadrata 1080 × 1080")
+            st.download_button(
+                "Scarica grafica quadrata",
+                data=graphic_path.read_bytes(),
+                file_name=graphic_path.name,
+                mime="image/png",
+            )
+        else:
+            st.error("La grafica non è stata generata.")
+            if results["graphic_error"]:
+                st.code(results["graphic_error"])
+
+    with caption_tab:
+        caption_key = f"caption_editor_{results['event_slug']}"
+        if caption_key not in st.session_state:
+            st.session_state[caption_key] = results["caption_text"]
+
+        st.text_area(
+            "Caption pronta da copiare e modificare",
+            key=caption_key,
+            height=430,
         )
+        st.download_button(
+            "Scarica caption TXT",
+            data=st.session_state[caption_key].encode("utf-8"),
+            file_name=f"{results['event_slug']}_caption.txt",
+            mime="text/plain",
+        )
+        st.caption("Questa prima versione usa un template automatico. Il collegamento Gemini arriverà nello step successivo.")
+
+    with kit_tab:
+        kit_path = Path(results["kit_zip_path"])
+        if kit_path.exists():
+            st.download_button(
+                "Scarica kit TN2G completo",
+                data=kit_path.read_bytes(),
+                file_name=kit_path.name,
+                mime="application/zip",
+            )
+        st.caption("Il kit include PDF se compilato, grafica, caption, LaTeX, immagini e GPX.")
