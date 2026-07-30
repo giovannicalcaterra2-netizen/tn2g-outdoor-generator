@@ -1,8 +1,8 @@
 """Generazione caption TN2G Outdoor con Gemini e fallback locale.
 
-La funzione pubblica mantiene il vecchio nome per compatibilità con app.py:
-se nei Secrets è presente ``gemini_api_key`` prova prima Gemini; in assenza
-della chiave o in caso di errore restituisce sempre una caption deterministica.
+La funzione pubblica mantiene il vecchio nome per compatibilità con app.py.
+Quando è presente una chiave Gemini prova il modello configurato e, se questo
+non è più disponibile, ripiega automaticamente sui modelli Flash correnti.
 """
 
 from __future__ import annotations
@@ -17,7 +17,12 @@ import requests
 import sitecustomize  # noqa: F401
 
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.6-flash"
+MODEL_FALLBACKS = (
+    "gemini-3.6-flash",
+    "gemini-flash-latest",
+    "gemini-3.5-flash-lite",
+)
 GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "{model}:generateContent"
@@ -150,21 +155,21 @@ STILE TN2G:
 - tono giovane, amichevole, spontaneo e concreto;
 - deve sembrare scritta da un vero admin della community, non da un'AI;
 - energica ma non pubblicitaria e non enfatica;
-- evita frasi generiche come “esperienza indimenticabile”, “non perdere l'occasione”,
+- evita frasi come “esperienza indimenticabile”, “non perdere l'occasione”,
   “avventura mozzafiato”, “lasciati trasportare” e simili;
 - non ripetere la stessa informazione in più paragrafi;
-- usa emoji utili e senza esagerare;
-- usa la formattazione WhatsApp con un solo asterisco per evidenziare titolo,
-  etichette e informazioni principali;
+- usa emoji utili senza esagerare;
+- usa la formattazione WhatsApp con un solo asterisco per titolo, etichette e
+  informazioni principali;
 - niente hashtag;
-- non aggiungere prezzi, prenotazioni, meteo, attrezzatura o difficoltà non forniti;
-- se un campo è vuoto, semplicemente non citarlo.
+- non aggiungere prezzi, meteo o attrezzatura non forniti;
+- se un campo è vuoto, non citarlo.
 
 STRUTTURA:
-1. Titolo forte nella forma “🌲 *TN2G OUTDOOR — TITOLO* 🥾⛰️”.
-2. Breve apertura naturale di 2-4 frasi che valorizzi percorso e atmosfera.
-3. Blocco informazioni molto leggibile, una voce per riga.
-4. Breve sezione “Cosa portare”, solo con gli elementi forniti.
+1. Titolo nella forma “🌲 *TN2G OUTDOOR — TITOLO* 🥾⛰️”.
+2. Apertura naturale di 2-4 frasi che valorizzi percorso e atmosfera.
+3. Blocco informazioni leggibile, una voce per riga.
+4. Sezione “Cosa portare”, solo con gli elementi forniti.
 5. Eventuale chiusura sul mood, senza ripetizioni.
 6. Ultima riga obbligatoria, identica: “{FINAL_CTA}”.
 
@@ -193,9 +198,25 @@ def _extract_text(payload: dict) -> str:
     return text
 
 
+def _normalise_model(model: str) -> str:
+    model = str(model or "").strip()
+    if model.startswith("models/"):
+        model = model.removeprefix("models/")
+    return model or DEFAULT_MODEL
+
+
+def _model_candidates(configured_model: str) -> list[str]:
+    """Restituisce modelli unici, dal configurato ai fallback correnti."""
+    candidates: list[str] = []
+    for model in (_normalise_model(configured_model), *MODEL_FALLBACKS):
+        if model and model not in candidates:
+            candidates.append(model)
+    return candidates
+
+
 def _generate_with_gemini(*, api_key: str, model: str, prompt: str) -> str:
     response = requests.post(
-        GEMINI_ENDPOINT.format(model=model),
+        GEMINI_ENDPOINT.format(model=_normalise_model(model)),
         headers={
             "x-goog-api-key": api_key,
             "Content-Type": "application/json",
@@ -232,6 +253,27 @@ def _generate_with_gemini(*, api_key: str, model: str, prompt: str) -> str:
         raise RuntimeError(f"Gemini API {response.status_code}: {details}")
 
     return _extract_text(response.json())
+
+
+def _generate_with_model_retry(
+    *,
+    api_key: str,
+    configured_model: str,
+    prompt: str,
+) -> str:
+    errors: list[str] = []
+
+    for model in _model_candidates(configured_model):
+        try:
+            return _generate_with_gemini(
+                api_key=api_key,
+                model=model,
+                prompt=prompt,
+            )
+        except Exception as error:
+            errors.append(f"{model}: {error}")
+
+    raise RuntimeError(" | ".join(errors))
 
 
 def generate_fallback_caption(
@@ -274,7 +316,7 @@ def generate_fallback_caption(
     if not api_key:
         return fallback
 
-    model = _secret_value("gemini_model") or DEFAULT_MODEL
+    configured_model = _secret_value("gemini_model") or DEFAULT_MODEL
     prompt = _build_prompt(
         title=title,
         date_text=date_text,
@@ -293,9 +335,9 @@ def generate_fallback_caption(
     )
 
     try:
-        return _generate_with_gemini(
+        return _generate_with_model_retry(
             api_key=api_key,
-            model=model,
+            configured_model=configured_model,
             prompt=prompt,
         )
     except Exception as error:
