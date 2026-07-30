@@ -1,8 +1,8 @@
 """Generazione caption TN2G Outdoor con Gemini e fallback locale.
 
 La funzione pubblica mantiene il vecchio nome per compatibilità con app.py.
-Quando è presente una chiave Gemini prova il modello configurato e, se questo
-non è più disponibile, ripiega automaticamente sui modelli Flash correnti.
+Gemini viene usato quando è presente una chiave API; pensieri e testo
+meta vengono esclusi, mentre il template locale resta il fallback sicuro.
 """
 
 from __future__ import annotations
@@ -20,14 +20,30 @@ import sitecustomize  # noqa: F401
 DEFAULT_MODEL = "gemini-3.6-flash"
 MODEL_FALLBACKS = (
     "gemini-3.6-flash",
-    "gemini-flash-latest",
     "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
 )
 GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "{model}:generateContent"
 )
 FINAL_CTA = "Chi vuole venire si prenota su @Outdoor ⛰️"
+
+_META_PATTERNS = (
+    r"\blet'?s check\b",
+    r"\bwhatsapp formatting instructions\b",
+    r"\bformatting instructions\b",
+    r"\bthe user asked\b",
+    r"\bi need to\b",
+    r"\bwe need to\b",
+    r"\bmy reasoning\b",
+    r"\bchain of thought\b",
+    r"\bsystem instruction\b",
+    r"\bdeveloper instruction\b",
+    r"\bprompt says\b",
+    r"\brestituisci soltanto\b",
+    r"\betichetta:\*?\s*valore\b",
+)
 
 
 def _clean(value: object) -> str:
@@ -54,8 +70,8 @@ def _notify_fallback(error: Exception) -> None:
         import streamlit as st
 
         st.warning(
-            "Gemini non ha generato la caption; è stato usato il template "
-            f"automatico. Dettaglio: {error}"
+            "Gemini non ha generato una caption valida; è stato usato il "
+            f"template automatico. Dettaglio: {error}"
         )
     except Exception:
         pass
@@ -159,43 +175,22 @@ STILE TN2G:
   “avventura mozzafiato”, “lasciati trasportare” e simili;
 - non ripetere la stessa informazione in più paragrafi;
 - usa emoji utili senza esagerare;
-- usa la formattazione WhatsApp con un solo asterisco per titolo, etichette e
-  informazioni principali;
+- usa la formattazione WhatsApp con un solo asterisco;
 - niente hashtag;
 - non aggiungere prezzi, meteo o attrezzatura non forniti;
 - se un campo è vuoto, non citarlo.
 
 STRUTTURA:
 1. Titolo nella forma “🌲 *TN2G OUTDOOR — TITOLO* 🥾⛰️”.
-2. Apertura naturale di 2-4 frasi che valorizzi percorso e atmosfera.
+2. Apertura naturale di 2-4 frasi.
 3. Blocco informazioni leggibile, una voce per riga.
 4. Sezione “Cosa portare”, solo con gli elementi forniti.
 5. Eventuale chiusura sul mood, senza ripetizioni.
 6. Ultima riga obbligatoria, identica: “{FINAL_CTA}”.
 
-Restituisci soltanto la caption pronta da incollare, senza introduzioni,
-spiegazioni, virgolette o blocchi di codice.
+Produci direttamente il testo finale. Non descrivere le regole, non commentare
+la formattazione, non mostrare ragionamenti e non scrivere spiegazioni.
 """.strip()
-
-
-def _extract_text(payload: dict) -> str:
-    candidates = payload.get("candidates") or []
-    if not candidates:
-        feedback = payload.get("promptFeedback") or {}
-        raise RuntimeError(f"Nessuna risposta testuale da Gemini: {feedback}")
-
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text = "".join(str(part.get("text", "")) for part in parts).strip()
-    text = re.sub(r"^```(?:text|markdown)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-
-    if len(text) < 80:
-        raise RuntimeError("La risposta di Gemini è vuota o troppo breve.")
-
-    if FINAL_CTA not in text:
-        text = f"{text.rstrip()}\n\n{FINAL_CTA}"
-
-    return text
 
 
 def _normalise_model(model: str) -> str:
@@ -214,6 +209,65 @@ def _model_candidates(configured_model: str) -> list[str]:
     return candidates
 
 
+def _looks_like_meta_output(text: str) -> bool:
+    lowered = text.lower()
+    return any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in _META_PATTERNS)
+
+
+def _validate_caption(text: str) -> str:
+    text = text.strip()
+
+    if len(text) < 180:
+        raise RuntimeError("La risposta di Gemini è vuota, troncata o troppo breve.")
+
+    if _looks_like_meta_output(text):
+        raise RuntimeError(
+            "Gemini ha restituito istruzioni o ragionamento interno invece della caption."
+        )
+
+    if "TN2G OUTDOOR" not in text.upper():
+        raise RuntimeError("La risposta non contiene il titolo TN2G Outdoor.")
+
+    info_signals = (
+        "📅",
+        "⏰",
+        "📍",
+        "*Ritrovo:*",
+        "*Distanza:*",
+        "*Dislivello:*",
+        "*Durata:*",
+    )
+    if sum(signal in text for signal in info_signals) < 3:
+        raise RuntimeError("La risposta non contiene un blocco informazioni completo.")
+
+    if FINAL_CTA not in text:
+        text = f"{text.rstrip()}\n\n{FINAL_CTA}"
+
+    return text
+
+
+def _extract_text(payload: dict) -> str:
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        feedback = payload.get("promptFeedback") or {}
+        raise RuntimeError(f"Nessuna risposta testuale da Gemini: {feedback}")
+
+    parts = candidates[0].get("content", {}).get("parts", [])
+
+    # Gemini può restituire parti separate marcate con thought=true.
+    # Non devono mai finire nella caption mostrata all'utente.
+    final_parts = [
+        str(part.get("text", ""))
+        for part in parts
+        if part.get("text") and not bool(part.get("thought"))
+    ]
+    text = "".join(final_parts).strip()
+    text = re.sub(r"^```(?:text|markdown)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text).strip()
+
+    return _validate_caption(text)
+
+
 def _generate_with_gemini(*, api_key: str, model: str, prompt: str) -> str:
     response = requests.post(
         GEMINI_ENDPOINT.format(model=_normalise_model(model)),
@@ -227,7 +281,8 @@ def _generate_with_gemini(*, api_key: str, model: str, prompt: str) -> str:
                     {
                         "text": (
                             "Sei il copywriter della community universitaria TN2G. "
-                            "Scrivi in italiano naturale e non inventare mai dati."
+                            "Scrivi soltanto la caption finale in italiano naturale. "
+                            "Non mostrare mai analisi, ragionamenti o commenti sul prompt."
                         )
                     }
                 ]
@@ -239,7 +294,11 @@ def _generate_with_gemini(*, api_key: str, model: str, prompt: str) -> str:
                 }
             ],
             "generationConfig": {
-                "maxOutputTokens": 1400,
+                "maxOutputTokens": 1200,
+                "thinkingConfig": {
+                    "thinkingLevel": "minimal",
+                    "includeThoughts": False,
+                },
             },
         },
         timeout=60,
